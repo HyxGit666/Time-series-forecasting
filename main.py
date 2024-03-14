@@ -1,16 +1,15 @@
-from fastapi import FastAPI, HTTPException
-import model_repo_reshape
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
-import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 import pymongo
-import uuid
-import dataprocessing
+from scripts import dataprocessing
+import asyncio
+from fastapi import FastAPI, HTTPException, status, Request
+import os,sys
+import time
+import subprocess
 
 
 app = FastAPI()
@@ -18,90 +17,48 @@ app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "Hello World!"}
+
+
+
+# async def run_subprocess_script(name: str):
+#     print(f'run_subprocess_script({name}) triggered')
+#     start_time = time.time()
+#
+#     # 使用 subprocess.Popen 创建子进程
+#     proc = subprocess.Popen([sys.executable, f"subprocess_{name}.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+#     stdout, stderr = proc.communicate()
+#
+#     end_time = time.time()
+#     process_time = end_time - start_time
+#     print(f"Subprocess {name} took {process_time:.2f} seconds")
+
+
+
+async def run_subprocess_script(name:str):
+    print(f'run_subprocess_script({name}) triggered')
+    start_time = time.time()
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, f"scripts/subprocess_{name}.py",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+        )
+    """[NOT-USED] Capture output (stdout and stderr) while running external command."""
+    # streaming subprocess output ref: https://gist.github.com/gh640/50953484edfa846fda9a95374df57900
+
+    await proc.communicate()
+    end_time = time.time()
+    process_time = end_time - start_time
+
+    print(f"Subprocess {name} took {process_time:.2f} seconds")
+
+
 
 @app.get("/run_process_forecast", tags=["Forecast"])
 async def run_process_forecast():
-    store = 137
-    brand = 'tropicana'
-    myclient = pymongo.MongoClient("mongodb://localhost:27017")
-    mydb = myclient["mydb1"]  # 指定数据库
-    myuuid = mydb["MAPE"]
-
-    # generate UUID
-    uuid_value = str(uuid.uuid4())
-    # write the uuid into database
-    myuuid.insert_one({"uuid": uuid_value})
-
-    csv_file = "data/Orange Juice.csv"
-    data = pd.read_csv(csv_file)
-
-    mywrite = mydb[uuid_value]
-
-    # put data into MongoDB
-
-    records = data.to_dict(orient='records')
-    mywrite.insert_many(records)
-    print("successfully write into database")
-
-    data_from_mongodb = list(mywrite.find())
-
-    data = pd.DataFrame(data_from_mongodb)
-
-    data = data[(data['store'] == store) & (data['brand'] == brand)]
-
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    data['Normalized_logmove'] = scaler.fit_transform(data['logmove'].values.reshape(-1, 1)).flatten()
-
-    X, y, y_date, start_values = dataprocessing.create_dataset(data[['Normalized_logmove']])
-
-    X_train, X_valid, X_test, y_train, y_valid, y_test, time_train, time_valid, time_test = dataprocessing.split_train_valid_test(
-        X,
-        y, data.week)
-
-    print(X_train.shape, X_valid.shape, X_test.shape)
-    print(y_train.shape, y_valid.shape, y_test.shape)
-    print(time_train.shape, time_valid.shape, time_test.shape)
-
-    for i in range(1,8):  # 循环迭代创建和训练七个不同的 LSTM 模型
-        model_function_name = f"create_LSTM_model{i}"
-        create_model_function = getattr(model_repo_reshape, model_function_name)  # 获取模型创建函数
-        model = create_model_function(12, 1)
-
-        model_name = f'models/LSTM_model_{i}.h5'  # 模型文件名中包含索引以区分不同的模型
-        es = EarlyStopping(monitor='loss', min_delta=0, patience=15, verbose=1, mode='auto')
-        mc = ModelCheckpoint(filepath=model_name, save_best_only=True)
-        callbacks = [es, mc]
-        print("train model ",i)
-        fit = model.fit(
-            X_train, y_train,
-            batch_size=32,
-            epochs=200,
-            verbose=2,
-            validation_data=(X_valid, y_valid),
-            callbacks=callbacks)
-        mape_train, mape_valid, mape_test, rmse_train, rmse_valid, rmse_test, mae_train, mae_valid, mae_test, pred_train, pred_valid, pred_test = dataprocessing.evaluate_model(
-            data, scaler, X_train,
-            X_valid, X_test, y_train,
-            y_valid, y_test, start_values,
-            model)
-        #print(mape_train, mape_valid, mape_test, rmse_train, rmse_valid, rmse_test, mae_train, mae_valid, mae_test, pred_train, pred_valid, pred_test)
-        myuuid.update_one({"uuid": uuid_value}, {"$set": {
-            f"mape_train_{i}": mape_train,
-            f"mape_valid_{i}": mape_valid,
-            f"mape_test_{i}": mape_test,
-            f"rmse_train_{i}": rmse_train,
-            f"rmse_valid_{i}": rmse_valid,
-            f"rmse_test_{i}": rmse_test,
-            f"mae_train_{i}": mae_train,
-            f"mae_valid_{i}": mae_valid,
-            f"mae_test_{i}": mae_test,
-            f"pred_train_{i}": pred_train.tolist(),
-            f"pred_valid_{i}": pred_valid.tolist(),
-            f"pred_test_{i}": pred_test.tolist()
-        }})
-
-    return {"message": "Task - Run forecast for active SKUs has been triggered mape is","mape": mape_test }
+    asyncio.create_task(run_subprocess_script('fcast_train'))
+    #BackgroundTasks.add_task(run_subprocess_script, 'fcast_train')
+    return {"message": "Task - Run forecast for active SKUs has been triggered"}
 
 
 @app.get("/model_mape/{uuid}")
@@ -194,8 +151,8 @@ async def get_pred_value(uuid: str, model_no: int):#加时间
             "time_valid":time_valid,"time_test":time_test}
 
 
-@app.get("/get_historical_data/{uuid}")
-async def get_historical_data(uuid: str, tags=["get origin data"]):
+@app.get("/get_historical_data/{uuid}")#using uuid to get historical data
+async def get_historical_data(uuid: str):
     # 在数据库中查找指定 UUID 对应的记录
     myclient = pymongo.MongoClient("mongodb://localhost:27017")
     mydb = myclient["mydb1"]
@@ -211,6 +168,24 @@ async def get_historical_data(uuid: str, tags=["get origin data"]):
     data = pd.DataFrame(data_from_mongodb)
     data = data[(data['store'] == store) & (data['brand'] == brand)]
     week = data.week
+    week = [int(value) for value in week.tolist()]
     logmove = data.logmove
+    logmove = [float(value) for value in logmove.tolist()]
 
     return {"historical_data": logmove, "time": week}
+
+
+@app.get("/check_status/{uuid}")
+async def check_status(uuid: str):
+    # 在数据库中查找指定 UUID 对应的记录
+    myclient = pymongo.MongoClient("mongodb://localhost:27017")
+    mydb = myclient["mydb1"]
+
+    result = mydb["MAPE"].find_one({"uuid": uuid})
+    if result is None:
+        raise HTTPException(status_code=404, detail="UUID not found")
+
+    status_key = f"status"
+    status = result.get(status_key, f"status not found")
+
+    return {"status : ",status}

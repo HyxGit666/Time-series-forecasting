@@ -4,13 +4,13 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 import numpy as np
 import pandas as pd
-#from datetime import datetime
+from datetime import datetime
 import matplotlib.pyplot as plt
 from math import ceil, log
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import tensorflow as tf
-#tf.random.set_seed(0)
+tf.random.set_seed(0)
 from tensorflow.keras.models import Sequential, Model, load_model
 from tensorflow.keras.layers import LSTM, Dense, Activation, Dropout
 from tensorflow.keras.utils import plot_model
@@ -20,15 +20,23 @@ from tensorflow.keras.layers import Activation, BatchNormalization, Conv1D, \
     Dense, Dropout, Embedding, Flatten, Input, LSTM, Lambda, RepeatVector, \
     concatenate, dot
 from tensorflow.keras.models import Model
-# from openpyxl import load_workbook
-# from openpyxl import Workbook
-import pymongo
-import uuid
-import dataprocessing
-# TRAIN_RANGE = (datetime(2021, 1, 4), datetime(2022, 12, 31))
-# VALID_RANGE = (datetime(2023, 1, 1), datetime(2023, 6, 30))
-# TEST_RANGE = (datetime(2023, 7,1), datetime(2024, 1, 28))
+from openpyxl import load_workbook
+from openpyxl import Workbook
+
+
+TRAIN_RANGE = (datetime(2021, 1, 4), datetime(2022, 12, 31))
+VALID_RANGE = (datetime(2023, 1, 1), datetime(2023, 6, 30))
+TEST_RANGE = (datetime(2023, 7,1), datetime(2024, 1, 28))
 TIMESTEPS = 12  # Input 12 months to predict next month
+
+# data = pd.read_csv('data/female-births.csv')
+# data.index = pd.to_datetime(data.date)  # Set datetime index
+# data.drop(['date'], axis=1, inplace=True)
+#
+# scaler = MinMaxScaler(feature_range=(0, 1))
+# data['NormalizedPassengers'] = scaler.fit_transform(data['quantity'].values.reshape(-1, 1)).flatten()
+
+
 
 def create_dataset(data, timesteps=TIMESTEPS):
     """Create input and output pairs for training lstm.
@@ -46,7 +54,6 @@ def create_dataset(data, timesteps=TIMESTEPS):
     for i in range(len(data) - timesteps):
         Xt = data.iloc[i:i + timesteps].values
         yt = data.iloc[i + timesteps]
-        #yt_date = data.week
         #yt_date = data.index[i + timesteps].to_pydatetime()
 
         # Subtract a start value from each values in the timestep.
@@ -62,13 +69,31 @@ def create_dataset(data, timesteps=TIMESTEPS):
     return np.array(X), np.array(y), y_date, start_values
 
 
-def split_train_valid_test(X, y, time,timesteps=TIMESTEPS):#, train_range=TRAIN_RANGE, valid_range=VALID_RANGE, test_range=TEST_RANGE
 
+def split_train_valid_test(X, y, y_date, train_range=TRAIN_RANGE, valid_range=VALID_RANGE, test_range=TEST_RANGE):
+    """Split X and y into train, valid, and test periods.
+    Params:
+        X (numpy.array): Input for lstm
+        y (numpy.array): Output for lstm
+        y_date (list): Datetime of output
+        train_range (tuple): Train period
+        valid_range (tuple): Validation period
+        test_range (tuple): Test period
+    Returns:
+        X_train (pandas.DataFrame)
+        X_valid (pandas.DataFrame)
+        X_test (pandas.DataFrame)
+        y_train (pandas.DataFrame)
+        y_valid (pandas.DataFrame)
+        y_test (pandas.DataFrame)
+        y_date_train (list)
+        y_date_valid (list)
+        y_date_test (list)
+    """
     # train_end_idx = y_date.index(train_range[1])
     # valid_end_idx = y_date.index(valid_range[1])
-
-    train_end_idx =int(X.shape[0] * 0.7)
-    valid_end_idx =int(X.shape[0] * 0.9)
+    train_end_idx =59
+    valid_end_idx =74
     X_train = X[:train_end_idx + 1, :]
     X_valid = X[train_end_idx + 1:valid_end_idx + 1, :]
     X_test = X[valid_end_idx + 1:, :]
@@ -76,19 +101,16 @@ def split_train_valid_test(X, y, time,timesteps=TIMESTEPS):#, train_range=TRAIN_
     y_train = y[:train_end_idx + 1]
     y_valid = y[train_end_idx + 1:valid_end_idx + 1]
     y_test = y[valid_end_idx + 1:]
-    #
-    # y_date_train = y_date[:train_end_idx + 1]
-    # y_date_valid = y_date[train_end_idx + 1:valid_end_idx + 1]
-    # y_date_test = y_date[valid_end_idx + 1:]
 
-    time=time.iloc[timesteps:]
-    time_train = time.iloc[:train_end_idx + 1]
-    time_valid = time.iloc[train_end_idx + 1:valid_end_idx + 1]
-    time_test = time.iloc[valid_end_idx + 1:]
+    y_date_train = y_date[:train_end_idx + 1]
+    y_date_valid = y_date[train_end_idx + 1:valid_end_idx + 1]
+    y_date_test = y_date[valid_end_idx + 1:]
 
-    return X_train, X_valid, X_test, y_train, y_valid, y_test, time_train, time_valid, time_test
+    return X_train, X_valid, X_test, y_train, y_valid, y_test, y_date_train, y_date_valid, y_date_test
+
 
 # Create input and output pairs for training lstm.
+
 
 def create_LSTM_model0(
         seq_len=12,  # Lookback window of the lagged dynamic features
@@ -263,6 +285,8 @@ def create_LSTM_model2(seq_len=12,
 
     return model
 
+
+
 def create_LSTM_model3( seq_len=12,
                        n_dyn_fea=1,
                        n_outputs=1,
@@ -307,9 +331,11 @@ def create_LSTM_model3( seq_len=12,
     d = decoder_outputs
     d = Dense(16, activation="relu")(d)
     output = Dense(n_outputs, activation="linear")(d)
+    print(output)
 
     model = Model(inputs=encoder_inputs, outputs=output)
     return model
+
 
 def create_LSTM_model4(
                        seq_len=12,
@@ -369,6 +395,7 @@ def create_LSTM_model4(
     model = Model(inputs=encoder_inputs, outputs=output)
 
     return model
+
 
 def create_LSTM_model5(
                        seq_len=12,
@@ -430,6 +457,7 @@ def create_LSTM_model5(
 
     model = Model(inputs=encoder_inputs, outputs=output)
     return model
+
 
 def create_LSTM_model6(
                        seq_len=12,
@@ -497,6 +525,7 @@ def create_LSTM_model6(
 
     model = Model(inputs=encoder_inputs, outputs=output)
     return model
+
 
 def create_LSTM_model7(
                        seq_len=12,
@@ -573,8 +602,10 @@ def create_LSTM_model7(
 
     return model
 
+
 def mape(y_true, y_pred):
     return np.mean(np.abs((y_pred - y_true) / y_true))
+
 
 def evaluate_model(data, scaler, X_train, X_valid, X_test, y_train, y_valid, y_test, y_date_train, y_date_valid,
                    y_date_test, start_values, model):
@@ -585,10 +616,12 @@ def evaluate_model(data, scaler, X_train, X_valid, X_test, y_train, y_valid, y_t
     pred_valid = model.predict(X_valid)
     pred_test = model.predict(X_test)
 
+
     # Add start_values that were subtracted when preprocessing.
     pred_train = pred_train + start_values[:len(X_train)]
     pred_valid = pred_valid + start_values[len(X_train):len(X_train) + len(X_valid)]
     pred_test = pred_test + start_values[len(X_train) + len(X_valid):]
+
 
     # Inverse transform normalization
     pred_train = scaler.inverse_transform(pred_train).flatten()
@@ -605,6 +638,16 @@ def evaluate_model(data, scaler, X_train, X_valid, X_test, y_train, y_valid, y_t
     y_valid = scaler.inverse_transform(y_valid).flatten()
     y_test = scaler.inverse_transform(y_test).flatten()
 
+    try:
+        wb = load_workbook("example.xlsx")
+    except FileNotFoundError:
+        wb = Workbook()
+
+    # 选择默认的工作表
+    ws = wb.active
+
+
+
     # Evaluate prediction scores of model.
     # for y, pred, mode in zip([y_train, y_valid, y_test], [pred_train, pred_valid, pred_test],
     #                          ['train', 'valid', 'test']):
@@ -614,123 +657,82 @@ def evaluate_model(data, scaler, X_train, X_valid, X_test, y_train, y_valid, y_t
     MAPE_train = mape(y_train, pred_train)
     MAPE_valid = mape(y_valid, pred_valid)
     MAPE_test = mape(y_test, pred_test)
-    return (MAPE_train,MAPE_valid,MAPE_test,pred_train,pred_valid,pred_test)
+        #MAPE = mape(y, pred)
+        # 新数据示例
+    new_data = [
+        [MAPE_train, MAPE_valid, MAPE_test]
+    ]
+    next_row = ws.max_row + 1
+    for row in new_data:
+        ws.append(row)
+    wb.save("example.xlsx")
 
+        # with open('data.txt', 'a') as f:
+        #     f.write('%s\n' %MAPE)
 
-store=2
-brand = 'tropicana'
-myclient = pymongo.MongoClient("mongodb://localhost:27017")
-# myclient = pymongo.MongoClient('localhost',27017)
-mydb = myclient["mydb1"]  # 指定数据库
-mycol = mydb["oj"]  # 指定集合
-myuuid= mydb["MAPE"]
-mywrite=mydb["test"]
+store=137
+brands = ['tropicana', 'minute.maid', 'dominicks']
+for brand in brands:
+    data = pd.read_csv('data/Orange Juice.csv')
+    data = data[(data['store'] == store) & (data['brand'] == brand)]
+    # print(data)
+    # data.index = pd.to_datetime(data.week)  # Set datetime index
+    data.drop(['week'], axis=1, inplace=True)
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    data['Normalized_logmove'] = scaler.fit_transform(data['logmove'].values.reshape(-1, 1)).flatten()
+    # print(data['Normalized_logmove'].shape)
+    #
+    X, y, y_date, start_values = create_dataset(data[['Normalized_logmove']])
 
-uuid="408f7b76-3a84-47bc-af7a-697e527caabf"
+    # Split X and y into train, valid, and test periods.
+    X_train, X_valid, X_test, y_train, y_valid, y_test, y_date_train, y_date_valid, y_date_test = split_train_valid_test(
+        X,
+        y,
+        y_date)
 
-mywrite = mydb[uuid]
-data_from_mongodb = list(mywrite.find())
-store=dataprocessing.store
-brand=dataprocessing.brand
-data = pd.DataFrame(data_from_mongodb)
-data = data[(data['store'] == store) & (data['brand'] == brand)]
+    print(X_train.shape, X_valid.shape, X_test.shape)
+    print(y_train.shape, y_valid.shape, y_test.shape)
 
-time_train, time_valid, time_test = dataprocessing.get_date(data.week)
-print(time_train)
+    for i in range(8):  # 循环迭代创建和训练八个不同的 LSTM 模型
+        model_function_name = f"create_LSTM_model{i}"
+        model = eval(model_function_name)()
+        model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
+        model_name = f'models/LSTM_model_{i}.h5'  # 模型文件名中包含索引以区分不同的模型
+        es = EarlyStopping(monitor='mean_absolute_error', min_delta=0, patience=15, verbose=1, mode='auto')
+        mc = ModelCheckpoint(filepath=model_name, save_best_only=True)
+        callbacks = [es, mc]
+        print("training model ", i)
+        # 训练模型
+        fit = model.fit(
+            X_train, y_train,
+            batch_size=32,
+            epochs=200,
+            verbose=2,
+            validation_data=(X_valid, y_valid),
+            callbacks=callbacks)
+        # print("the mape of model ", i)
+        # 评估模型
+        with open('data.txt', 'a') as f:
+            f.write('%s\n' % model_function_name)
+        evaluate_model(data, scaler, X_train, X_valid, X_test, y_train, y_valid, y_test, y_date_train, y_date_valid,
+                       y_date_test, start_values, model)
 
-
-    # 获取对应模型号的预测值的键
-pred_train_key = f"pred_train_{1}"  # 假设预测值的键为 pred_test_i，其中 i 为模型号
-pred_valid_key = f"pred_valid_{1}"
-pred_test_key = f"pred_test_{1}"
-
-
-
-
-
-
-
-# # generate UUID
-# uuid_value = str(uuid.uuid4())
-# # 将 UUID 记录在数据库中
-# myuuid.insert_one({"uuid": uuid_value})
+# # 创建并编译模型
+# model = create_LSTM_model0()
+# model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
+# es = EarlyStopping(monitor='mean_absolute_error', min_delta=0, patience=15, verbose=1, mode='auto')
+# fn = 'models/LSTM_model.h5'
+# mc = ModelCheckpoint(filepath=fn, save_best_only=True)
+# callbacks = [es, mc]
 #
-# csv_file = "data/Orange Juice.csv"  # 将此替换为你的 CSV 文件路径
-# data = pd.read_csv(csv_file)
+# # Start training model.
+# fit = model.fit(
+#     X_train, y_train,
+#     batch_size=32,
+#     epochs=200,
+#     verbose=2,
+#     validation_data=(X_valid, y_valid),
+#     callbacks=callbacks)
 #
-# # 将数据插入到 MongoDB 集合中
-# mywrite.delete_many({})
-# records = data.to_dict(orient='records')  # 将 DataFrame 转换为字典列表
-# mywrite.insert_many(records)
-# print("successfully write into database")
-#
-#
-# data_from_mongodb = list(mywrite.find())
-# # 将数据转换为 DataFrame
-# data = pd.DataFrame(data_from_mongodb)
-# # 假设你仍然需要筛选数据，你可以按照原来的方式进行：
-# data = data[(data['store'] == store) & (data['brand'] == brand)]
-# # 使用 MinMaxScaler 进行归一化处理
-# scaler = MinMaxScaler(feature_range=(0, 1))
-# data['Normalized_logmove'] = scaler.fit_transform(data['logmove'].values.reshape(-1, 1)).flatten()
-#
-# X, y, y_date, start_values = create_dataset(data[['Normalized_logmove']])
-#
-# X_train, X_valid, X_test, y_train, y_valid, y_test, time_train, time_valid, time_test = split_train_valid_test(
-#         X,
-#         y,data.week)
-#
-# print(X_train.shape, X_valid.shape, X_test.shape)
-# print(y_train.shape, y_valid.shape, y_test.shape)
-# print(time_train.shape, time_valid.shape, time_test.shape)
-
-# mape_valid_lists = []
-#
-# for i in range(8):  # 循环迭代创建和训练八个不同的 LSTM 模型
-#     model_function_name = f"create_LSTM_model{i}"
-#     model = eval(model_function_name)()
-#     model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
-#     model_name = f'models/LSTM_model_{i}.h5'  # 模型文件名中包含索引以区分不同的模型
-#     es = EarlyStopping(monitor='mean_absolute_error', min_delta=0, patience=15, verbose=1, mode='auto')
-#     mc = ModelCheckpoint(filepath=model_name, save_best_only=True)
-#     callbacks = [es, mc]
-#     print("training model ", i)
-#     # 训练模型
-#     fit = model.fit(
-#             X_train, y_train,
-#             batch_size=32,
-#             epochs=200,
-#             verbose=2,
-#             validation_data=(X_valid, y_valid),
-#             callbacks=callbacks)
-#
-#     #mape_train_list = fit.history['mean_absolute_error']  # 训练集的MAPE
-#     mape_valid_list = fit.history['val_mean_absolute_error'][:100]  # 验证集的MAPE
-#     mape_valid_lists.append(mape_valid_list)
-#
-#     mape_train,mape_valid,mape_test,pred_train,pred_valid,pred_test=evaluate_model(data, scaler, X_train, X_valid, X_test, y_train, y_valid, y_test, y_date_train, y_date_valid,
-#                        y_date_test, start_values, model)
-#     myuuid.update_one({"uuid": uuid_value}, {"$set": {
-#         "mape_train": mape_train,
-#         "mape_valid": mape_valid,
-#         "mape_test": mape_test
-#     }})
-#     myuuid.update_one({"uuid": uuid_value}, {"$set": {
-#         "pred_train": pred_train.tolist(),
-#         "pred_valid": pred_valid.tolist(),
-#         "pred_test": pred_test.tolist()
-#     }})
-#
-# plt.figure(figsize=(10, 6))
-# for i in range(8):
-#     #plt.plot(np.arange(1, len(mape_train_lists[i]) + 1), mape_train_lists[i], label=f'Training MAPE - Model {i}')
-#     plt.plot(np.arange(1, len(mape_valid_lists[i]) + 1), mape_valid_lists[i], label=f'Model {i}')
-#
-# plt.title('MAPE vs. Epoch')
-# plt.xlabel('Epoch')
-# plt.ylabel('MAPE')
-# plt.legend()
-# plt.grid(True)
-# plt.show()
-#
-
+# evaluate_model(data, scaler, X_train, X_valid, X_test, y_train, y_valid, y_test, y_date_train, y_date_valid,
+#                y_date_test, start_values, model)

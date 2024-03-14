@@ -76,10 +76,7 @@ def split_train_valid_test(X, y, time,timesteps=TIMESTEPS):#, train_range=TRAIN_
     y_train = y[:train_end_idx + 1]
     y_valid = y[train_end_idx + 1:valid_end_idx + 1]
     y_test = y[valid_end_idx + 1:]
-    #
-    # y_date_train = y_date[:train_end_idx + 1]
-    # y_date_valid = y_date[train_end_idx + 1:valid_end_idx + 1]
-    # y_date_test = y_date[valid_end_idx + 1:]
+
 
     time=time.iloc[timesteps:]
     time_train = time.iloc[:train_end_idx + 1]
